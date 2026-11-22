@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  checks:
+    name: Python 3.10 checks (self-hosted Windows)
+    runs-on: [self-hosted, Windows, X64, portuguese-legal-metadata-dashboard]
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create CI virtual environment
+        run: |
+          python -m venv .venv-ci
+          .\.venv-ci\Scripts\python.exe --version
+          .\.venv-ci\Scripts\python.exe -m pip --version
+          Write-Host "Runner OS: $env:RUNNER_OS"
+
+      - name: Install dependencies
+        run: .\.venv-ci\Scripts\python.exe -m pip install --no-input -r requirements.txt
+
+      - name: Verify dependency metadata
+        run: .\.venv-ci\Scripts\python.exe -m pip check
+
+      - name: Byte-compile sources
+        run: .\.venv-ci\Scripts\python.exe -m compileall -q dashboard scripts
+
+      - name: Lint syntax and undefined names
+        run: .\.venv-ci\Scripts\python.exe -m flake8 --select=E9,F63,F7,F82 --show-source dashboard scripts
+
+      - name: Initialize sample SQLite database
+        run: .\.venv-ci\Scripts\python.exe scripts/init_database.py
+
+      - name: Smoke test Flask endpoints
+        run: .\.venv-ci\Scripts\python.exe scripts/ci_smoke_test.py
+
+      - name: Run tests when present
+        run: |
+          # The smoke helper matches pytest's `*_test.py` pattern; keep it out of test collection.
+          .\.venv-ci\Scripts\python.exe -m pytest -q --ignore=scripts/ci_smoke_test.py
+          if ($LASTEXITCODE -eq 5) {
+              Write-Host "::notice::pytest collected no tests; the missing suite is documented in CICD-AUDIT.md."
+              exit 0
+          } elseif ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
