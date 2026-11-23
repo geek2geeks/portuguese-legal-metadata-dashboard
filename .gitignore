@@ -33,6 +33,7 @@ instance/
 venv/
 ENV/
 env/
+.venv-ci/
 
 # IDE
 .idea/
@@ -45,7 +46,11 @@ env/
 Thumbs.db
 
 # Test Files
-tests/
 examples/
 sample_documents/
 test_data/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
